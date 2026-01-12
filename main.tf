@@ -20,15 +20,15 @@ module "vpc" {
   create_flow_log_cloudwatch_iam_role  = true
   create_flow_log_cloudwatch_log_group = true
 
-  # Kubernetes specific tags
+  # Kubernetes specific tags - Fixed tag format
   public_subnet_tags = {
-    "kubernetes.io/role/elb"                      = "1"
-    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+    "kubernetes.io_role_elb"    = "1"
+    "kubernetes.io_cluster_name" = local.cluster_name
   }
 
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb"             = "1"
-    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+    "kubernetes.io_role_internal-elb" = "1"
+    "kubernetes.io_cluster_name"      = local.cluster_name
   }
 
   tags = local.common_tags
@@ -198,15 +198,19 @@ module "worker_sg" {
 
 # Control Plane IAM Role
 module "control_plane_iam_role" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  source  = "terraform-aws-modules/iam/aws//modules/iam-assumable-role"
   version = "~> 5.0"
 
-  role_name = "${local.cluster_name}-control-plane-role"
+  trusted_role_services   = ["ec2.amazonaws.com"]
+  create_role             = true
+  create_instance_profile = true
+  role_name               = "${local.cluster_name}-control-plane-role"
+  role_requires_mfa       = false
 
-  role_policy_arns = {
-    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-    CloudWatchAgentServerPolicy  = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-  }
+  custom_role_policy_arns = [
+    "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+    "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+  ]
 
   tags = local.common_tags
 }
@@ -349,7 +353,7 @@ module "control_plane" {
   monitoring             = true
   vpc_security_group_ids = [module.control_plane_sg.security_group_id, module.worker_sg.security_group_id]
   subnet_id              = element(module.vpc.private_subnets, index(tolist(toset(["master-1", "master-2", "master-3"])), each.key))
-  iam_instance_profile   = module.control_plane_iam_role.iam_role_name
+  iam_instance_profile   = module.control_plane_iam_role.iam_instance_profile_name
 
   metadata_options = {
     http_endpoint               = "enabled"
@@ -367,9 +371,9 @@ module "control_plane" {
   ]
 
   tags = merge(local.common_tags, {
-    Name                                          = "${local.cluster_name}-${each.key}"
-    "kubernetes.io/cluster/${local.cluster_name}" = "owned"
-    Role                                          = "control-plane"
+    Name                         = "${local.cluster_name}-${each.key}"
+    "kubernetes.io_cluster_name" = local.cluster_name
+    Role                         = "control-plane"
   })
 }
 
@@ -407,15 +411,14 @@ module "worker_asg_mixed" {
   # Security
   security_groups = [module.worker_sg.security_group_id]
 
-  # Mixed instances policy - 70% Spot, 30% On-Demand
+  # Mixed instances policy
   use_mixed_instances_policy = true
   mixed_instances_policy = {
     instances_distribution = {
       on_demand_base_capacity                  = var.worker_ondemand_base_capacity
       on_demand_percentage_above_base_capacity = var.worker_ondemand_percentage_above_base
-      spot_allocation_strategy                 = "price-capacity-optimized"
-      spot_instance_pools                      = 4
-      spot_max_price                           = var.worker_spot_max_price
+      spot_allocation_strategy                 = "capacity-optimized"
+      spot_max_price                           = var.worker_spot_max_price != "" ? var.worker_spot_max_price : null
     }
 
     override = [
@@ -452,10 +455,10 @@ module "worker_asg_mixed" {
   }
 
   tags = merge(local.common_tags, {
-    Name                                          = "${local.cluster_name}-worker-mixed"
-    "kubernetes.io/cluster/${local.cluster_name}" = "owned"
-    Role                                          = "worker"
-    PricingModel                                  = "mixed"
+    Name                         = "${local.cluster_name}-worker-mixed"
+    "kubernetes.io_cluster_name" = local.cluster_name
+    Role                         = "worker"
+    PricingModel                 = "mixed"
   })
 }
 
@@ -515,10 +518,10 @@ module "worker_asg_ondemand" {
   }
 
   tags = merge(local.common_tags, {
-    Name                                          = "${local.cluster_name}-worker-ondemand"
-    "kubernetes.io/cluster/${local.cluster_name}" = "owned"
-    Role                                          = "worker"
-    PricingModel                                  = "on-demand"
+    Name                         = "${local.cluster_name}-worker-ondemand"
+    "kubernetes.io_cluster_name" = local.cluster_name
+    Role                         = "worker"
+    PricingModel                 = "on-demand"
   })
 }
 
@@ -560,7 +563,7 @@ module "worker_asg_spot" {
   instance_market_options = {
     market_type = "spot"
     spot_options = {
-      max_price                      = var.worker_spot_max_price
+      max_price                      = var.worker_spot_max_price != "" ? var.worker_spot_max_price : null
       spot_instance_type             = "one-time"
       instance_interruption_behavior = "terminate"
     }
@@ -588,9 +591,9 @@ module "worker_asg_spot" {
   }
 
   tags = merge(local.common_tags, {
-    Name                                          = "${local.cluster_name}-worker-spot"
-    "kubernetes.io/cluster/${local.cluster_name}" = "owned"
-    Role                                          = "worker"
-    PricingModel                                  = "spot"
+    Name                         = "${local.cluster_name}-worker-spot"
+    "kubernetes.io_cluster_name" = local.cluster_name
+    Role                         = "worker"
+    PricingModel                 = "spot"
   })
 }
