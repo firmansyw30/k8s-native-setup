@@ -1,0 +1,4 @@
+- name: Join worker to cluster
+  command: "{{ hostvars[groups['role_control-plane'][0]].kubeadm_join_cmd }}"
+  args:
+    creates: /etc/kubernetes/kubelet.conf

@@ -1,0 +1,7 @@
+kubernetes_version: "1.33.2"
+pod_network_cidr: "10.244.0.0/16"
+containerd_version: "1.7.11"
+
+#ansible_connection: aws_ssm
+ansible_aws_ssm_region: ap-southeast-3
+ansible_aws_ssm_timeout: 60

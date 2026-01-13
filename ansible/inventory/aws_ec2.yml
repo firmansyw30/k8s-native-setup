@@ -1,0 +1,19 @@
+plugin: amazon.aws.aws_ec2
+
+regions:
+  - ap-southeast-3
+
+filters:
+  tag:kubernetes.io_cluster_name: client-k8s-cluster-prod
+  instance-state-name: running
+
+hostnames:
+  - instance-id
+
+#compose:
+#  ansible_host: instance_id
+#  ansible_connection: aws_ssm
+
+keyed_groups:
+  - key: tags.Role
+    prefix: role
