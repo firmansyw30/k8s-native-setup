@@ -5,3 +5,6 @@ containerd_version: "1.7.11"
 #ansible_connection: aws_ssm
 ansible_aws_ssm_region: ap-southeast-3
 ansible_aws_ssm_timeout: 60
+ansible_aws_ssm_bucket_name: ansible-ssm-tmp-client-k8s-prod
+
+ansible_remote_tmp: /tmp/.ansible
