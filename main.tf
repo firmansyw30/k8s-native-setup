@@ -209,8 +209,32 @@ module "control_plane_iam_role" {
 
   custom_role_policy_arns = [
     "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
-    "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+    "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
+    aws_iam_policy.control_plane_s3_policy.arn
   ]
+
+  tags = local.common_tags
+}
+
+# Control Plane S3 Policy
+resource "aws_iam_policy" "control_plane_s3_policy" {
+  name        = "${local.cluster_name}-control-plane-s3-policy"
+  description = "S3 policy for K8s control plane nodes"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "arn:aws:s3:::ansible-ssm-tmp-client-k8s-prod/*"
+      }
+    ]
+  })
 
   tags = local.common_tags
 }
@@ -230,7 +254,8 @@ module "worker_iam_role" {
     "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
     "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
     "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
-    aws_iam_policy.worker_policy.arn
+    aws_iam_policy.worker_policy.arn,
+    aws_iam_policy.worker_s3_policy.arn
   ]
 
   tags = local.common_tags
@@ -284,6 +309,28 @@ resource "aws_iam_policy" "worker_policy" {
   tags = local.common_tags
 }
 
+# Worker S3 Policy
+resource "aws_iam_policy" "worker_s3_policy" {
+  name        = "${local.cluster_name}-worker-s3-policy"
+  description = "S3 policy for K8s worker nodes"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "arn:aws:s3:::ansible-ssm-tmp-client-k8s-prod/*"
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
 # Bastion Host IAM Role
 module "bastion_iam_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-assumable-role"
