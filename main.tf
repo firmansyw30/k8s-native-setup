@@ -22,7 +22,7 @@ module "vpc" {
 
   # Kubernetes specific tags - Fixed tag format
   public_subnet_tags = {
-    "kubernetes.io_role_elb"    = "1"
+    "kubernetes.io_role_elb"     = "1"
     "kubernetes.io_cluster_name" = local.cluster_name
   }
 
@@ -68,6 +68,59 @@ module "bastion_sg" {
   tags = merge(local.common_tags, { Name = "${local.cluster_name}-bastion-sg" })
 }
 
+# Control Plane Load Balancer (Internal)
+module "nlb" {
+  source  = "terraform-aws-modules/alb/aws"
+  version = "~> 9.0"
+
+  name               = "${local.cluster_name}-nlb"
+  load_balancer_type = "network"
+  vpc_id             = module.vpc.vpc_id
+  subnets            = module.vpc.private_subnets
+  internal           = true
+
+  listeners = {
+    api_server = {
+      port     = 6443
+      protocol = "TCP"
+      forward = {
+        target_group_key = "k8s-api"
+      }
+    }
+  }
+
+  target_groups = {
+    k8s-api = {
+      name_prefix       = "k8s-"
+      protocol          = "TCP"
+      port              = 6443
+      target_type       = "instance"
+      create_attachment = false  # Disable internal attachments, we'll create them separately
+      health_check = {
+        enabled             = true
+        interval            = 30
+        path                = "/livez"
+        port                = "traffic-port"
+        protocol            = "HTTPS"
+        timeout             = 10
+        healthy_threshold   = 3
+        unhealthy_threshold = 3
+        matcher             = "200-399"
+      }
+    }
+  }
+
+  tags = local.common_tags
+}
+
+# Attach Master Nodes to Target Group
+resource "aws_lb_target_group_attachment" "control_plane" {
+  for_each         = module.control_plane
+  target_group_arn = module.nlb.target_groups["k8s-api"].arn
+  target_id        = each.value.id
+  port             = 6443
+}
+
 # Control Plane Security Group
 module "control_plane_sg" {
   source  = "terraform-aws-modules/security-group/aws"
@@ -90,7 +143,7 @@ module "control_plane_sg" {
       to_port     = 2380
       protocol    = "tcp"
       description = "etcd server client API"
-      cidr_blocks = module.vpc.private_subnets_cidr_blocks[0]
+      cidr_blocks = module.vpc.vpc_cidr_block
     },
     {
       from_port   = 10250
@@ -104,14 +157,14 @@ module "control_plane_sg" {
       to_port     = 10259
       protocol    = "tcp"
       description = "kube-scheduler"
-      cidr_blocks = module.vpc.private_subnets_cidr_blocks[0]
+      cidr_blocks = module.vpc.vpc_cidr_block
     },
     {
       from_port   = 10257
       to_port     = 10257
       protocol    = "tcp"
       description = "kube-controller-manager"
-      cidr_blocks = module.vpc.private_subnets_cidr_blocks[0]
+      cidr_blocks = module.vpc.vpc_cidr_block
     }
   ]
 
