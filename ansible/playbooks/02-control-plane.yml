@@ -1,4 +1,6 @@
 - hosts: role_control-plane
   become: true
+  gather_facts: true
+  serial: 1
   roles:
     - control-plane
