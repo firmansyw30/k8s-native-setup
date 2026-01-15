@@ -1,6 +1,7 @@
 kubernetes_version: "1.33.2"
 pod_network_cidr: "10.244.0.0/16"
 containerd_version: "2.2.0"
+calico_version: "v3.29.2"
 
 ansible_connection: aws_ssm
 ansible_aws_ssm_region: ap-southeast-3
@@ -14,4 +15,4 @@ ansible_remote_tmp: /tmp/.ansible
 ansible_python_interpreter: /usr/bin/python3
 
 # Control Plane Load Balancer (NLB)
-nlb_dns_name: "your-nlb-dns-name.elb.ap-southeast-3.amazonaws.com"  # Update this value after terraform apply
+nlb_dns_name: "client-k8s-cluster-prod-nlb-e26b552fa11dfeb9.elb.ap-southeast-3.amazonaws.com"  # Update this value after terraform apply
