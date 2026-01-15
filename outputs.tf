@@ -62,3 +62,13 @@ output "worker_sg_id" {
   description = "Worker security group ID"
   value       = module.worker_sg.security_group_id
 }
+
+output "network_lb_id" {
+  description = "Network Load Balancer ID"
+  value      = module.nlb.id
+}
+
+output "network_lb_dns_name" {
+  description = "Network Load Balancer DNS Name"
+  value = module.nlb.dns_name
+}
