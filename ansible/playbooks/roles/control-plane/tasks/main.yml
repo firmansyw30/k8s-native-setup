@@ -1,0 +1,181 @@
+---
+- name: Check if kubeadm has already been initialized
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeadm_init
+
+# Initialize first control plane node only
+- name: Initialize first control plane node
+  block:
+    - name: Create kubeadm config directory
+      file:
+        path: /etc/kubernetes/kubeadm
+        state: directory
+        mode: '0755'
+
+    - name: Generate kubeadm config for first master
+      template:
+        src: kubeadm-config.yml.j2
+        dest: /etc/kubernetes/kubeadm/kubeadm-config.yml
+        mode: '0644'
+
+    - name: Initialize Kubernetes control plane
+      command: >
+        kubeadm init
+        --config /etc/kubernetes/kubeadm/kubeadm-config.yml
+        --upload-certs
+      register: kubeadm_init_output
+
+    - name: Save kubeadm init output
+      copy:
+        content: "{{ kubeadm_init_output.stdout }}"
+        dest: /etc/kubernetes/kubeadm/kubeadm-init-output.txt
+        mode: '0600'
+
+    - name: Extract certificate key
+      shell: |
+        grep -A 1 "certificate-key" /etc/kubernetes/kubeadm/kubeadm-init-output.txt | tail -1 | tr -d ' '
+      register: certificate_key
+      changed_when: false
+
+    - name: Extract join command
+      shell: |
+        kubeadm token create --print-join-command
+      register: join_command
+      changed_when: false
+
+    - name: Set join facts for other nodes
+      set_fact:
+        kubeadm_certificate_key: "{{ certificate_key.stdout }}"
+        kubeadm_join_command: "{{ join_command.stdout }}"
+      delegate_to: localhost
+      delegate_facts: true
+
+  when:
+    - not kubeadm_init.stat.exists
+    - inventory_hostname == groups['role_control_plane'][0]
+
+# Setup kubeconfig for root user on first master
+- name: Setup kubeconfig for root user
+  block:
+    - name: Create .kube directory
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copy admin.conf to root user
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: yes
+        mode: '0600'
+  when: inventory_hostname == groups['role_control_plane'][0]
+
+# Install Calico CNI on first master only
+- name: Install Calico CNI
+  block:
+    - name: Create Calico directory
+      file:
+        path: /etc/kubernetes/calico
+        state: directory
+        mode: '0755'
+
+    - name: Download Calico operator manifest
+      get_url:
+        url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml"
+        dest: /etc/kubernetes/calico/tigera-operator.yaml
+        mode: '0644'
+
+    - name: Apply Calico operator
+      command: kubectl apply -f /etc/kubernetes/calico/tigera-operator.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: calico_operator_result
+      changed_when: "'created' in calico_operator_result.stdout or 'configured' in calico_operator_result.stdout"
+
+    - name: Wait for Calico operator to be ready
+      command: kubectl wait --for=condition=Available deployment/tigera-operator -n tigera-operator --timeout=120s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      retries: 3
+      delay: 10
+      register: operator_wait
+      until: operator_wait.rc == 0
+
+    - name: Generate Calico custom resources
+      template:
+        src: calico-installation.yml.j2
+        dest: /etc/kubernetes/calico/calico-installation.yml
+        mode: '0644'
+
+    - name: Apply Calico custom resources
+      command: kubectl apply -f /etc/kubernetes/calico/calico-installation.yml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: calico_cr_result
+      changed_when: "'created' in calico_cr_result.stdout or 'configured' in calico_cr_result.stdout"
+
+    - name: Wait for Calico to be ready
+      command: kubectl wait --for=condition=Available tigerastatus/calico --timeout=300s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      retries: 5
+      delay: 30
+      register: calico_wait
+      until: calico_wait.rc == 0
+      ignore_errors: true
+
+  when:
+    - inventory_hostname == groups['role_control_plane'][0]
+    - kubeadm_init.stat.exists or kubeadm_init_output is defined
+
+# Join other control plane nodes
+- name: Join additional control plane nodes
+  block:
+    - name: Wait for first master to be ready
+      wait_for:
+        timeout: 60
+      delegate_to: localhost
+
+    - name: Join control plane
+      command: >
+        {{ hostvars['localhost']['kubeadm_join_command'] }}
+        --control-plane
+        --certificate-key {{ hostvars['localhost']['kubeadm_certificate_key'] }}
+      register: join_result
+
+  when:
+    - not kubeadm_init.stat.exists
+    - inventory_hostname != groups['role_control_plane'][0]
+    - hostvars['localhost']['kubeadm_join_command'] is defined
+
+# Setup kubeconfig for additional masters
+- name: Setup kubeconfig for additional masters
+  block:
+    - name: Create .kube directory
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copy admin.conf
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: yes
+        mode: '0600'
+  when:
+    - inventory_hostname != groups['role_control_plane'][0]
+    - kubeadm_init.stat.exists
+
+# Wait for all nodes to be ready
+- name: Wait for node to be ready
+  command: kubectl get nodes {{ ansible_hostname }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: node_ready
+  until: node_ready.stdout == "True"
+  retries: 30
+  delay: 10
+  when: kubeadm_init.stat.exists or kubeadm_init_output is defined or join_result is defined
