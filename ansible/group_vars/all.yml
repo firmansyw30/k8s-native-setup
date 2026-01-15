@@ -1,10 +1,17 @@
 kubernetes_version: "1.33.2"
 pod_network_cidr: "10.244.0.0/16"
-containerd_version: "1.7.11"
+containerd_version: "2.2.0"
 
-#ansible_connection: aws_ssm
+ansible_connection: aws_ssm
 ansible_aws_ssm_region: ap-southeast-3
-ansible_aws_ssm_timeout: 60
+ansible_aws_ssm_timeout: 120
 ansible_aws_ssm_bucket_name: ansible-ssm-tmp-client-k8s-prod
 
+# Remote temp
 ansible_remote_tmp: /tmp/.ansible
+
+# Python interpreter
+ansible_python_interpreter: /usr/bin/python3
+
+# Control Plane Load Balancer (NLB)
+nlb_dns_name: "{{ lookup('env', 'K8S_NLB_DNS') | default('your-nlb-dns-name.elb.ap-southeast-3.amazonaws.com', true) }}"
