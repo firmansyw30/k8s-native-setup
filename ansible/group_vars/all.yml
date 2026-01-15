@@ -14,4 +14,4 @@ ansible_remote_tmp: /tmp/.ansible
 ansible_python_interpreter: /usr/bin/python3
 
 # Control Plane Load Balancer (NLB)
-nlb_dns_name: "{{ lookup('env', 'K8S_NLB_DNS') | default('your-nlb-dns-name.elb.ap-southeast-3.amazonaws.com', true) }}"
+nlb_dns_name: "your-nlb-dns-name.elb.ap-southeast-3.amazonaws.com"  # Update this value after terraform apply
