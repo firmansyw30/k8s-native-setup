@@ -1,5 +1,7 @@
 - hosts: all
   become: true
+  gather_facts: false
+  #connection: aws_ssm
   roles:
     - common
     - containerd
